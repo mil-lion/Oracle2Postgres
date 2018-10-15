@@ -19,8 +19,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import org.postgresql.copy.CopyManager;
 import org.postgresql.core.BaseConnection;
 
@@ -138,7 +136,7 @@ public class TransferManager implements AutoCloseable {
     
     private boolean existConstraint(String owner, String constraintName) throws SQLException {
         try (PreparedStatement pstmt = srcConnection.prepareStatement(
-                "SELECT * FROM all_constraints WHERE owner = ? AND constraint_name = ?")) {
+                "SELECT 1 FROM all_constraints WHERE owner = ? AND constraint_name = ?")) {
             pstmt.setString(1, owner);
             pstmt.setString(2, constraintName);
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -172,7 +170,10 @@ public class TransferManager implements AutoCloseable {
 
         ctx.log("\n-- Constraints for table " + owner + '.' + tableName);
         ctx.writeDDL("\n-- Constraints for table " + owner + '.' + tableName);
-        try (PreparedStatement pstmt = srcConnection.prepareStatement("SELECT * FROM all_constraints WHERE owner = ? AND table_name = ? AND constraint_type != 'R'")) {
+        try (PreparedStatement pstmt = srcConnection.prepareStatement(
+                          "SELECT owner, constraint_name, constraint_type, search_condition "
+                        + "FROM all_constraints "
+                        + "WHERE owner = ? AND table_name = ? AND constraint_type != 'R'")) {
             pstmt.setString(1, owner);
             pstmt.setString(2, tableName);
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -211,7 +212,10 @@ public class TransferManager implements AutoCloseable {
 
         ctx.log("\n-- Constraints for table " + owner + '.' + tableName);
         ctx.writeDDL("\n-- Constraints for table " + owner + '.' + tableName);
-        try (PreparedStatement pstmt = srcConnection.prepareStatement("SELECT * FROM all_constraints WHERE owner = ? AND table_name = ? AND constraint_type='R'")) {
+        try (PreparedStatement pstmt = srcConnection.prepareStatement(
+                          "SELECT owner, constraint_name, r_owner, r_constraint_name, delete_rule "
+                        + "FROM all_constraints "
+                        + "WHERE owner = ? AND table_name = ? AND constraint_type='R'")) {
             pstmt.setString(1, owner);
             pstmt.setString(2, tableName);
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -249,7 +253,10 @@ public class TransferManager implements AutoCloseable {
     
     private String indexColumns(String owner, String indexName) throws SQLException {
       StringBuilder sb = new StringBuilder();
-        try (PreparedStatement pstmt = srcConnection.prepareStatement("SELECT column_name FROM all_ind_columns WHERE index_owner = ? AND index_name = ?")) {
+        try (PreparedStatement pstmt = srcConnection.prepareStatement(
+                          "SELECT column_name "
+                        + "FROM all_ind_columns "
+                        + "WHERE index_owner = ? AND index_name = ?")) {
             pstmt.setString(1, owner);
             pstmt.setString(2, indexName);
             int i = 0;
@@ -266,7 +273,10 @@ public class TransferManager implements AutoCloseable {
     private void extractTableIndexesDDL(String owner, String tableName) throws SQLException {
         ctx.log("\n-- Indexes for table " + owner + '.' + tableName);
         ctx.writeDDL("\n-- Indexes for table " + owner + '.' + tableName);
-        try (PreparedStatement pstmt = srcConnection.prepareStatement("SELECT * FROM all_indexes WHERE table_owner = ? AND table_name = ?")) {
+        try (PreparedStatement pstmt = srcConnection.prepareStatement(
+                          "SELECT owner, index_name, index_type, uniqueness "
+                        + "FROM all_indexes "
+                        + "WHERE table_owner = ? AND table_name = ?")) {
             pstmt.setString(1, owner);
             pstmt.setString(2, tableName);
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -293,6 +303,103 @@ public class TransferManager implements AutoCloseable {
             }
         }
     }
+    
+    // PostgreSQL Data Type Convert
+    private String postgresColumnType(String dataType, String dataLength, int dataScale, int dataPrecision) {
+        String pgType;
+        
+        switch (dataType) {
+            case "CHAR":
+            case "NCHAR":
+                pgType = "char(" + dataLength + ')';
+                break;
+
+            case "VARCHAR2":
+            case "VARCHAR":
+            case "NVARCHAR2":
+            case "NVARCHAR":
+                pgType = "varchar(" + dataLength + ')';
+                break;
+
+            case "NUMBER":
+                // number
+                if (dataScale == 0) {
+                    // integer
+                    if (dataPrecision < 5) {
+                        pgType = "smallint";
+                    } else if (dataPrecision >= 5 && dataPrecision <= 8) {
+                        pgType = "int";
+                    } else if (dataPrecision >= 9 && dataPrecision <= 18) {
+                        pgType = "bigint";
+                    } else {
+                        // data_precision > 18
+                        pgType = "decimal(" + dataPrecision + ')';
+                    }
+                } else {
+                    // data_scale > 0
+                    pgType = "decimal(" + dataPrecision + ',' + dataScale + ')'; // or numeric ?
+                }   
+                break;
+
+            case "DATE":
+                pgType = "timestamp(0)";
+                break;
+
+            case "TIMESTAMP":
+                pgType = "timestamp(" + dataLength + ')';
+                break;
+
+            case "TIMESTAMP(6)":
+                pgType = "timestamp(6)";
+                break;
+
+            case "TIMESTAMP(6) WITH TIME ZONE":
+                pgType = "timestamp(6) with time zone";
+                break;
+
+            case "ROWID":
+                pgType = "char(10)";
+                break;
+
+            case "LONG":
+            case "CLOB":
+            case "NCLOB":
+                pgType = "text";
+                break;
+
+            case "BLOB":
+            case "RAW":
+            case "LONG RAW":
+                pgType = "bytea";
+                break;
+
+            case "BFILE":
+                pgType = "varchar(255)"; // or bytea (read-only)
+                break;
+
+            case "BINARY_INTEGER":
+                pgType = "integer"; // ??
+                break;
+
+            case "BINARY_FLOAT":
+                pgType = "real";
+                break;
+
+            case "BINARY_DOUBLE":
+                pgType = "double precision";
+                break;
+
+            case "XMLTYPE":
+                pgType = "xml";
+                break;
+
+            default:
+                pgType = "???";
+                break;
+        }
+
+        return pgType;
+    }
 
     private void extractTableDDL(String owner, String tableName) throws SQLException {
 
@@ -308,123 +415,60 @@ public class TransferManager implements AutoCloseable {
         StringBuilder sb = new StringBuilder("CREATE TABLE " + owner + '.' + tableName + " (\n");
 
         // Columns
-        try (PreparedStatement pstmt = srcConnection.prepareStatement("SELECT * FROM all_tab_columns WHERE owner = ? AND table_name = ? ORDER BY column_id")) {
+        try (PreparedStatement pstmt = srcConnection.prepareStatement(
+                          "SELECT column_name, data_type, data_length, data_scale, data_precision, nullable, data_default "
+                        + "FROM all_tab_columns "
+                        + "WHERE owner = ? AND table_name = ? "
+                        + "ORDER BY column_id")) {
             pstmt.setString(1, owner);
             pstmt.setString(2, tableName);
             try (ResultSet rs = pstmt.executeQuery()) {
                 int i = 0;
                 while (rs.next()) {
-                    // PostgreSQL Data Type Convert
-                    String pgType;
-                    String dataType = rs.getString("data_type");
-                    String dataLength = rs.getString("data_length");
-                    int dataScale = rs.getInt("data_scale");
-                    int dataPrecision = rs.getInt("data_precision");
-                    switch (dataType) {
-                        case "CHAR":
-                        case "NCHAR":
-                            pgType = "char(" + dataLength + ')';
-                            break;
-                        case "VARCHAR2":
-                        case "VARCHAR":
-                        case "NVARCHAR2":
-                        case "NVARCHAR":
-                            pgType = "varchar(" + dataLength + ')';
-                            break;
-                        case "NUMBER":
-                            // number
-                            if (dataScale == 0) {
-                                // integer
-                                if (dataPrecision < 5) {
-                                    pgType = "smallint";
-                                } else if (dataPrecision >= 5 && dataPrecision <= 8) {
-                                    pgType = "int";
-                                } else if (dataPrecision >= 9 && dataPrecision <= 18) {
-                                    pgType = "bigint";
-                                } else {
-                                    // data_precision > 18
-                                    pgType = "decimal(" + dataPrecision + ')';
-                                }
-                            } else {
-                                // data_scale > 0
-                                pgType = "decimal(" + dataPrecision + ',' + dataScale + ')'; // or numeric ?
-                            }   break;
-                        case "DATE":
-                            pgType = "timestamp(0)";
-                            break;
-                        case "TIMESTAMP":
-                            pgType = "timestamp(" + dataLength + ')';
-                            break;
-                        case "TIMESTAMP(6)":
-                            pgType = "timestamp(6)";
-                            break;
-                        case "TIMESTAMP(6) WITH TIME ZONE":
-                            pgType = "timestamp(6) with time zone";
-                            break;
-                        case "ROWID":
-                            pgType = "char(10)";
-                            break;
-                        case "LONG":
-                        case "CLOB":
-                        case "NCLOB":
-                            pgType = "text";
-                            break;
-                        case "BLOB":
-                        case "RAW":
-                        case "LONG RAW":
-                            pgType = "bytea";
-                            break;
-                        case "BFILE":
-                            pgType = "varchar(255)"; // or bytea (read-only)
-                            break;
-                        case "BINARY_INTEGER":
-                            pgType = "integer"; // ??
-                            break;
-                        case "BINARY_FLOAT":
-                            pgType = "real";
-                            break;
-                        case "BINARY_DOUBLE":
-                            pgType = "double precision";
-                            break;
-                        case "XMLTYPE":
-                            pgType = "xml";
-                            break;
-                        default:
-                            pgType = "???";
-                            break;
-                    }
-
-                    // Nullable
-                    if (rs.getString("nullable").equals("N")) pgType += " NOT NULL";
-
-                    // Default
-                    String dataDefault = rs.getString("data_default");
-                    if (dataDefault != null && !dataDefault.isEmpty()) {
-                        dataDefault = StringUtils.rtrim(dataDefault, " \n"); // TODO!!!!
-                        // System.out.println("'"+ dataDefault + "'");
-                        switch (dataDefault.toUpperCase()) {
-                            case "SYSDATE":
-                            case "SYSTIMESTAMP":
-                                pgType += " DEFAULT now()::timestamp";
-                                break;
-                            case "EMPTY_BLOB()":
-                            case "EMPTY_CLOB()":
-                                pgType += " DEFAULT ''";
-                                break;
-                            default:
-                                pgType += " DEFAULT " + dataDefault;
-                        }
-                    }
-
                     // Line Prefix
                     if (i++ > 0) sb.append(", ");
                     else         sb.append("  ");
 
+                    // Column
                     String columnName = rs.getString("column_name");
                     sb.append(StringUtils.rpad(columnName, COLUMN_NAME_LENGTH))
-                      .append(' ')
-                      .append(pgType)
-                      .append('\n');
+                      .append(' ');
+
+                    // PostgreSQL Data Type Convert
+                    String dataType = rs.getString("data_type");
+                    String dataLength = rs.getString("data_length");
+                    int dataScale = rs.getInt("data_scale");
+                    int dataPrecision = rs.getInt("data_precision");
+                    sb.append(postgresColumnType(dataType, dataLength, dataScale, dataPrecision));
+
+                    // Nullable
+                    if (rs.getString("nullable").equals("N")) sb.append(" NOT NULL");
+
+                    // Default
+                    String dataDefault = rs.getString("data_default");
+                    if (dataDefault != null && !dataDefault.isEmpty()) {
+                        // normalize
+                        dataDefault = StringUtils.rtrim(dataDefault, " \n");
+                        // System.out.println("'"+ dataDefault + "'");
+
+                        sb.append(" DEFAULT ");
+                        switch (dataDefault.toUpperCase()) {
+                            case "SYSDATE":
+                            case "SYSTIMESTAMP":
+                                sb.append("now()::timestamp");
+                                break;
+
+                            case "EMPTY_BLOB()":
+                            case "EMPTY_CLOB()":
+                                sb.append("''");
+                                break;
+
+                            default:
+                                sb.append(dataDefault);
+                        }
+                    }
+                    // End Column defenition
+                    sb.append('\n');
                 } // end while
             } // end fetch
         } // end select
@@ -438,12 +482,17 @@ public class TransferManager implements AutoCloseable {
         // Comments for table
         ctx.writeDDL("\n-- Comments for table " + owner + '.' + tableName);
         ctx.log("\n-- Comments for table " + owner + '.' + tableName);
-        try (PreparedStatement pstmt = srcConnection.prepareStatement("SELECT comments FROM all_tab_comments WHERE owner = ? AND table_name = ?")) {
+        try (PreparedStatement pstmt = srcConnection.prepareStatement(
+                          "SELECT comments "
+                        + "FROM all_tab_comments "
+                        + "WHERE owner = ? AND table_name = ?")) {
             pstmt.setString(1, owner);
             pstmt.setString(2, tableName);
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
-                    sql = "COMMENT ON TABLE " + owner + '.' + tableName + " IS '" + rs.getString(1) + '\'';
+                    String comments = rs.getString(1);
+                    comments = comments.replaceAll("'", "''"); // quoted apostrof
+                    sql = "COMMENT ON TABLE " + owner + '.' + tableName + " IS '" + comments + '\'';
                     ctx.writeDDL(sql + ';');
                     if (ctx.isCreateTable()) {
                         executeDDL(sql, "Create comment for table " + owner + '.' + tableName);
@@ -453,7 +502,10 @@ public class TransferManager implements AutoCloseable {
         }
 
         // Comments for table columns
-        try (PreparedStatement pstmt = srcConnection.prepareStatement("SELECT * FROM all_col_comments WHERE owner = ? AND table_name = ?")) {
+        try (PreparedStatement pstmt = srcConnection.prepareStatement(
+                          "SELECT column_name, comments "
+                        + "FROM all_col_comments "
+                        + "WHERE owner = ? AND table_name = ?")) {
             pstmt.setString(1, owner);
             pstmt.setString(2, tableName);
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -462,7 +514,9 @@ public class TransferManager implements AutoCloseable {
                     if (comments != null && !comments.isEmpty()) {
                         comments = comments.replaceAll("'", "''"); // quoted apostrof
                         String columnName = rs.getString("column_name");
-                        sql = "COMMENT ON COLUMN " + owner + '.' + tableName + '.' + StringUtils.rpad(columnName, COLUMN_NAME_LENGTH) + " IS '" + comments + '\'';
+                        sql = "COMMENT ON COLUMN " 
+                                + owner + '.' + tableName + '.' + StringUtils.rpad(columnName, COLUMN_NAME_LENGTH) 
+                                + " IS '" + comments + '\'';
                         ctx.writeDDL(sql + ';');
                         if (ctx.isCreateTable()) {
                             executeDDL(sql, "Create comment for column " + owner + '.' + tableName + '.' + columnName);
@@ -516,7 +570,10 @@ public class TransferManager implements AutoCloseable {
     public Set<String> getSchemaTables() throws SQLException {
         Set<String> tables = new TreeSet<>();
 
-        try (PreparedStatement pstmt = srcConnection.prepareStatement("SELECT table_name FROM all_tables WHERE owner = ?")) {
+        try (PreparedStatement pstmt = srcConnection.prepareStatement(
+                          "SELECT table_name "
+                        + "FROM all_tables "
+                        + "WHERE owner = ?")) {
             pstmt.setString(1, ctx.getOwner());
             // table of Schema
             try (ResultSet rs = pstmt.executeQuery()) {
@@ -562,7 +619,7 @@ public class TransferManager implements AutoCloseable {
                     // copy data
                     if (chunkCount >= ctx.getChunkSize()) {
                         // copy part data
-                        cvsBuffer.deleteCharAt(cvsBuffer.length() - 1);
+                        cvsBuffer.deleteCharAt(cvsBuffer.length() - 1); // delete last eol
                         cm.copyIn(destSql, new StringReader(cvsBuffer.toString()));
                         
                         // clear cvs buffer
