@@ -531,7 +531,7 @@ public class TransferManager implements AutoCloseable {
 
     /**
      *
-     * @author Alexey Novikov <anovikov9004 at nbox.ru>
+     * @author Alexey Novikov <anovikov9004 at inbox.ru>
      */
     private void transferData(String owner, String tableName) {
         ctx.log("Transfer data for table " + owner + '.' + tableName);
