@@ -1,0 +1,12 @@
+<#if licenseFirst??>
+${licenseFirst}
+</#if>
+${licensePrefix}File:    ${nameAndExt}
+${licensePrefix}Project: ${project.name}
+${licensePrefix}Date:    ${date} ${time}
+${licensePrefix}Author:  ${user}
+${licensePrefix}
+${licensePrefix}Copyright 2005-${date?date?string("yyyy")} LionSoft LLC. All rights reserved.
+<#if licenseLast??>
+${licenseLast}
+</#if>
