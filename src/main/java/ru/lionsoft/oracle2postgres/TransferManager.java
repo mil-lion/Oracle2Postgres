@@ -62,14 +62,14 @@ public class TransferManager implements AutoCloseable {
     private void connectToDatabases() throws ClassNotFoundException, SQLException {
         Class.forName(ORACLE_DRIVER);
         String srcUrl = "jdbc:oracle:thin:@" + ctx.getSrcHost() + ':' + ctx.getSrcPort() + ':' + ctx.getSrcDatabase();
-        ctx.log("\n-- Source URL: " + srcUrl);
+        ctx.log("-- Source URL: " + srcUrl);
         srcConnection = DriverManager.getConnection(srcUrl, ctx.getSrcUsername(), ctx.getSrcPassword());
         ctx.log("Connecting to source database.");
 
         if (ctx.isCreateTable() || ctx.isTransferRows()) {
             Class.forName(POSTGRES_DRIVER);
             String destUrl = "jdbc:postgres://" + ctx.getDestHost() + ':' + ctx.getDestPort() + '/' + ctx.getDestDatabase();
-            ctx.log("\n-- Target URL: " + destUrl);
+            ctx.log("-- Target URL: " + destUrl);
             destConnection = DriverManager.getConnection(destUrl, ctx.getDestUsername(), ctx.getDestPassword());
             ctx.log("Connecting to target database.");
         }
@@ -168,7 +168,7 @@ public class TransferManager implements AutoCloseable {
 
     private void extractTableConstraintsPUC(String owner, String tableName) throws SQLException {
 
-        ctx.log("\n-- Constraints for table " + owner + '.' + tableName);
+        ctx.log("-- Constraints for table " + owner + '.' + tableName);
         ctx.writeDDL("\n-- Constraints for table " + owner + '.' + tableName);
         try (PreparedStatement pstmt = srcConnection.prepareStatement(
                           "SELECT owner, constraint_name, constraint_type, search_condition "
@@ -210,7 +210,7 @@ public class TransferManager implements AutoCloseable {
 
     private void extractTableConstraintsFK(String owner, String tableName) throws SQLException {
 
-        ctx.log("\n-- Constraints for table " + owner + '.' + tableName);
+        ctx.log("-- Constraints FK for table " + owner + '.' + tableName);
         ctx.writeDDL("\n-- Constraints for table " + owner + '.' + tableName);
         try (PreparedStatement pstmt = srcConnection.prepareStatement(
                           "SELECT owner, constraint_name, r_owner, r_constraint_name, delete_rule "
@@ -271,7 +271,7 @@ public class TransferManager implements AutoCloseable {
     }
 
     private void extractTableIndexesDDL(String owner, String tableName) throws SQLException {
-        ctx.log("\n-- Indexes for table " + owner + '.' + tableName);
+        ctx.log("-- Indexes for table " + owner + '.' + tableName);
         ctx.writeDDL("\n-- Indexes for table " + owner + '.' + tableName);
         try (PreparedStatement pstmt = srcConnection.prepareStatement(
                           "SELECT owner, index_name, index_type, uniqueness "
@@ -287,7 +287,7 @@ public class TransferManager implements AutoCloseable {
                     String uniqueness = rs.getString("uniqueness");
                     if (indexType.equals("NORMAL")) {
                         String sql =
-                            (existConstraint(indexOwner, indexName) ? "-- " : "") +
+                            (existConstraint(indexOwner, indexName) ? "--" : "") +
                             "CREATE " + (uniqueness.equals("UNIQUE") ? "UNIQUE " : "") + "INDEX " + indexName +
                             " ON " + owner + '.' + tableName + '(' + indexColumns(indexOwner, indexName) + ")";
 
@@ -403,7 +403,7 @@ public class TransferManager implements AutoCloseable {
 
     private void extractTableDDL(String owner, String tableName) throws SQLException {
 
-        ctx.log("\n--\n-- Table " + owner + '.' + tableName + "\n--\n");
+        ctx.log("-- Table " + owner + '.' + tableName);
         ctx.writeDDL("\n--\n-- Table " + owner + '.' + tableName + "\n--\n");
 
         String sql = "DROP TABLE " + owner + '.' + tableName + " CASCADE";
@@ -480,8 +480,8 @@ public class TransferManager implements AutoCloseable {
         }
 
         // Comments for table
+        ctx.log("-- Comments for table " + owner + '.' + tableName);
         ctx.writeDDL("\n-- Comments for table " + owner + '.' + tableName);
-        ctx.log("\n-- Comments for table " + owner + '.' + tableName);
         try (PreparedStatement pstmt = srcConnection.prepareStatement(
                           "SELECT comments "
                         + "FROM all_tab_comments "
@@ -491,11 +491,13 @@ public class TransferManager implements AutoCloseable {
             try (ResultSet rs = pstmt.executeQuery()) {
                 if (rs.next()) {
                     String comments = rs.getString(1);
-                    comments = comments.replaceAll("'", "''"); // quoted apostrof
-                    sql = "COMMENT ON TABLE " + owner + '.' + tableName + " IS '" + comments + '\'';
-                    ctx.writeDDL(sql + ';');
-                    if (ctx.isCreateTable()) {
-                        executeDDL(sql, "Create comment for table " + owner + '.' + tableName);
+                    if (comments != null && !comments.isEmpty()) {
+                        comments = comments.replaceAll("'", "''"); // quoted apostrof
+                        sql = "COMMENT ON TABLE " + owner + '.' + tableName + " IS '" + comments + '\'';
+                        ctx.writeDDL(sql + ';');
+                        if (ctx.isCreateTable()) {
+                            executeDDL(sql, "Create comment for table " + owner + '.' + tableName);
+                        }
                     }
                 }
             }
@@ -538,6 +540,7 @@ public class TransferManager implements AutoCloseable {
     public void extractSchemaDDL() {
         String schema = ctx.getOwner();
         ctx.log("-- Schema: " + schema);
+        ctx.writeDDL("--\n-- Schema " + schema + "\n--\n");
         String sql = "DROP SCHEMA " + schema;
         ctx.writeDDL(sql + ';');
         if (ctx.isCreateSchema()) {

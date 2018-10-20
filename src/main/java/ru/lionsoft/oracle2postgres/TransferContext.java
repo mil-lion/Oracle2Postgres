@@ -318,12 +318,13 @@ public class TransferContext {
         logStream.println("\nOptions:");
         logStream.println("  Create target schema: " + createSchema);
         logStream.println("  Create target tables: " + createTable);
-        logStream.println("  Transfer rows: " + transferRows);
+        logStream.println("  Transfer table  rows: " + transferRows);
         if (transferRows) {
             logStream.println("  Sample rows: " + sampleRows);
             logStream.println("  Chunk  size: " + chunkSize);
             logStream.println("  Threads num: " + threadsNum);
         }
+        logStream.println();
     }
 
     // Logging message

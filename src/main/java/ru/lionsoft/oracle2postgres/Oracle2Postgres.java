@@ -9,9 +9,6 @@
 package ru.lionsoft.oracle2postgres;
 
 import java.io.IOException;
-import java.sql.SQLException;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  *
@@ -50,6 +47,7 @@ public class Oracle2Postgres extends Thread {
 
             manager.extractSchemaDDL();
 
+            ctx.log("Tables of Schema " + ctx.getOwner());
             ctx.writeDDL("\n--\n-- Tables of Schema " + ctx.getOwner() + "\n--\n");
 
             ctx.initializeJobs();
