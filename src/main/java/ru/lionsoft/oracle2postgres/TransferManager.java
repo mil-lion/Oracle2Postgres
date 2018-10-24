@@ -17,6 +17,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.Set;
 import java.util.TreeSet;
 import org.postgresql.copy.CopyManager;
@@ -615,7 +616,16 @@ public class TransferManager implements AutoCloseable {
                     chunkCount++;
                     for (int i = 1; i <= metaData.getColumnCount(); i++) {
                         if (i > 1) cvsBuffer.append(',');
-                        cvsBuffer.append(rs.getString(i));
+                        String val = rs.getString(i);
+                        int valType = metaData.getColumnType(i);
+                        if (val != null && 
+                                (valType == Types.VARCHAR || valType == Types.CHAR || valType == Types.CLOB 
+                                || valType == Types.NVARCHAR || valType == Types.NCHAR || valType == Types.NCLOB)) {
+                            val = val.replaceAll("\"", "\"\""); // quoted quotes
+                            cvsBuffer.append('"').append(val).append('"');
+                        } else {
+                            cvsBuffer.append(val);
+                        }
                     }
                     cvsBuffer.append('\n');
 
