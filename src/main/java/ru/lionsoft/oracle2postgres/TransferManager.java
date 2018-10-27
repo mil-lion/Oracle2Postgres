@@ -609,41 +609,41 @@ public class TransferManager implements AutoCloseable {
                 
                 long rowCount = 0;
                 int chunkCount = 0;
-                StringBuilder cvsBuffer = new StringBuilder();
+                StringBuilder csvBuffer = new StringBuilder();
                 while (rs.next()) {
                     rowCount++;
-                    // save data to cvs buffer
+                    // save data to csv buffer
                     chunkCount++;
                     for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                        if (i > 1) cvsBuffer.append(',');
+                        if (i > 1) csvBuffer.append(',');
                         String val = rs.getString(i);
                         int valType = metaData.getColumnType(i);
                         if (val != null && 
                                 (valType == Types.VARCHAR || valType == Types.CHAR || valType == Types.CLOB 
                                 || valType == Types.NVARCHAR || valType == Types.NCHAR || valType == Types.NCLOB)) {
                             val = val.replaceAll("\"", "\"\""); // quoted quotes
-                            cvsBuffer.append('"').append(val).append('"');
+                            csvBuffer.append('"').append(val).append('"');
                         } else {
-                            cvsBuffer.append(val);
+                            csvBuffer.append(val);
                         }
                     }
-                    cvsBuffer.append('\n');
+                    csvBuffer.append('\n');
 
                     // copy data
                     if (chunkCount >= ctx.getChunkSize()) {
                         // copy part data
-                        cvsBuffer.deleteCharAt(cvsBuffer.length() - 1); // delete last eol
-                        cm.copyIn(destSql, new StringReader(cvsBuffer.toString()));
+                        csvBuffer.deleteCharAt(csvBuffer.length() - 1); // delete last eol
+                        cm.copyIn(destSql, new StringReader(csvBuffer.toString()));
                         
-                        // clear cvs buffer
+                        // clear csv buffer
                         chunkCount = 0;
-                        cvsBuffer = new StringBuilder();
+                        csvBuffer = new StringBuilder();
                     }
                 }
                 if (chunkCount > 0) {
                     // copy last part data
-                    cvsBuffer.deleteCharAt(cvsBuffer.length() - 1);
-                    cm.copyIn(destSql, new StringReader(cvsBuffer.toString()));
+                    csvBuffer.deleteCharAt(csvBuffer.length() - 1);
+                    cm.copyIn(destSql, new StringReader(csvBuffer.toString()));
                 }
                 ctx.log("Copied " + rowCount + " rows");
             } 
