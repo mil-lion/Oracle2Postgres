@@ -69,7 +69,7 @@ public class TransferManager implements AutoCloseable {
 
         if (ctx.isCreateTable() || ctx.isTransferRows()) {
             Class.forName(POSTGRES_DRIVER);
-            String destUrl = "jdbc:postgres://" + ctx.getDestHost() + ':' + ctx.getDestPort() + '/' + ctx.getDestDatabase();
+            String destUrl = "jdbc:postgresql://" + ctx.getDestHost() + ':' + ctx.getDestPort() + '/' + ctx.getDestDatabase();
             ctx.log("-- Target URL: " + destUrl);
             destConnection = DriverManager.getConnection(destUrl, ctx.getDestUsername(), ctx.getDestPassword());
             ctx.log("Connecting to target database.");
@@ -542,12 +542,12 @@ public class TransferManager implements AutoCloseable {
         String schema = ctx.getOwner();
         ctx.log("-- Schema: " + schema);
         ctx.writeDDL("--\n-- Schema " + schema + "\n--\n");
-        String sql = "DROP SCHEMA " + schema;
+        String sql = "DROP SCHEMA " + schema + " CASCADE";
         ctx.writeDDL(sql + ';');
         if (ctx.isCreateSchema()) {
             executeDDL(sql, "Drop schema " + schema);
         }
-        sql = "CREATE SCHEMA " + schema + "\n  AUTHORIZATION ibdradmin";
+        sql = "CREATE SCHEMA " + schema + "\n  AUTHORIZATION " + ctx.getDestUsername();
         ctx.writeDDL(sql + ';');
         if (ctx.isCreateSchema()) {
             executeDDL(sql, "Create schema " + schema);
@@ -600,7 +600,7 @@ public class TransferManager implements AutoCloseable {
         try (Statement srcStmt  = srcConnection.createStatement();) {
             // target copy manager
             CopyManager cm = new CopyManager((BaseConnection) destConnection);
-            String destSql = "COPY " + owner + '.' + tableName + " FROM STDIN DELIMETER ',' NULL AS 'null';";
+            String destSql = "COPY " + owner + '.' + tableName + " FROM STDIN WITH DELIMITER ',' NULL 'null' CSV";
             
             // source select
             srcStmt.setFetchSize(ctx.getChunkSize());
