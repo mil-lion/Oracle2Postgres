@@ -256,9 +256,7 @@ public class TransferContext {
         owner = properties.getProperty("source.owner", "scott");
         String tablist = properties.getProperty("source.tables", "*");
         if (!tablist.equals("*")) {
-            for (String tableName : tablist.split(",")) {
-                tables.add(tableName.trim());
-            }
+          tables.addAll(Arrays.asList(tablist.split(",")).stream().map(String::trim).collect(Collectors.toList()));
         }
         
         // target
