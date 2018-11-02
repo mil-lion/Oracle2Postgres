@@ -173,7 +173,9 @@ public class TransferContext {
         owner = input("\n- Owner of source database (default: 'scott'): ", "scott").toUpperCase();
         String tablist = input("- Table list on source database by comma (default: '*'): ", "*").toUpperCase();
         if (!tablist.equals("*")) {
-          tables.addAll(Arrays.asList(tablist.split(",")).stream().map(String::trim).collect(Collectors.toList()));
+            for (String tableName : tablist.split(",")) {
+                tables.add(tableName.trim());
+            }
         }
         
         createSchema = inputYesNo("\n- Create target schema (default: 'no'): ", "no");
@@ -256,7 +258,9 @@ public class TransferContext {
         owner = properties.getProperty("source.owner", "scott");
         String tablist = properties.getProperty("source.tables", "*");
         if (!tablist.equals("*")) {
-          tables.addAll(Arrays.asList(tablist.split(",")).stream().map(String::trim).collect(Collectors.toList()));
+            for (String tableName : tablist.split(",")) {
+                tables.add(tableName.trim());
+            }
         }
         
         // target
