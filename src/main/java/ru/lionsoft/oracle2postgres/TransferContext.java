@@ -46,7 +46,7 @@ public class TransferContext {
     // Object for transfer
     private String owner;
     private Set<String> tables = new TreeSet<>();
-    private List<String> jobs = new LinkedList<>();
+    private final List<String> jobs = new LinkedList<>();
     
     // Transfer options
     private int sampleRows;
