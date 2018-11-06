@@ -673,8 +673,7 @@ public class TransferManager implements AutoCloseable {
                                         pstmt.setObject(i, rs.getObject(i));
                                 }
                             }
-                            // insert data
-                            //pstmt.executeUpdate();
+                            // add record
                             pstmt.addBatch();
                             if (++rowCount % ctx.getChunkSize() == 0) {
                                 // insert records
@@ -685,12 +684,12 @@ public class TransferManager implements AutoCloseable {
                     }
                 } else {
                     // target copy manager
-                    CopyManager cm = new CopyManager((BaseConnection) destConnection);
+                    CopyManager copyMgr = new CopyManager((BaseConnection) destConnection);
                     String destSql = "COPY " + owner + '.' + tableName + " FROM STDIN WITH DELIMITER ',' NULL 'null' CSV";
 
                     StringBuilder csvBuffer = new StringBuilder();
                     while (rs.next()) {
-                        // save data to csv buffer
+                        // save record to csv buffer
                         for (int i = 1; i <= metaData.getColumnCount(); i++) {
                             if (i > 1) csvBuffer.append(',');
                             String val = rs.getString(i);
@@ -706,20 +705,19 @@ public class TransferManager implements AutoCloseable {
                         }
                         csvBuffer.append('\n');
 
-                        // copy data
                         if (++rowCount % ctx.getChunkSize() == 0) {
-                            // copy part data
+                            // copy records
                             csvBuffer.deleteCharAt(csvBuffer.length() - 1); // delete last eol
-                            cm.copyIn(destSql, new StringReader(csvBuffer.toString()));
+                            copyMgr.copyIn(destSql, new StringReader(csvBuffer.toString()));
 
                             // clear csv buffer
                             csvBuffer = new StringBuilder();
                         }
                     }
                     if (csvBuffer.length() > 0) {
-                        // copy last part data
+                        // copy remaining records
                         csvBuffer.deleteCharAt(csvBuffer.length() - 1);
-                        cm.copyIn(destSql, new StringReader(csvBuffer.toString()));
+                        copyMgr.copyIn(destSql, new StringReader(csvBuffer.toString()));
                     }
                 }
                 ctx.log(owner + '.' + tableName + " Copied " + rowCount + " rows");
