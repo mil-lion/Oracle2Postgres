@@ -187,7 +187,7 @@ public class TransferContext {
         transferRows = inputYesNo("- Transfer rows to target tables (default: 'no'): ", "no");
         if (transferRows) {
             sampleRows  = Integer.parseInt(input("- Sample rows for transfer (default: 200): ", "200"));
-            chunkSize   = Integer.parseInt(input("- Chunk size for transfer (default: 2000): ", "2000"));
+            chunkSize   = Integer.parseInt(input("- Chunk size for transfer (default: 1000): ", "1000"));
             threadsNum = Integer.parseInt(input("- Treads number (default: 1): ", "1"));
         }
         
@@ -281,7 +281,7 @@ public class TransferContext {
         
         // transfer options
         sampleRows = nvl(properties.getProperty("transfer.sampleRows"), 200);
-        chunkSize = nvl(properties.getProperty("transfer.chunkSize"), 2000);
+        chunkSize = nvl(properties.getProperty("transfer.chunkSize"), 1000);
         threadsNum = nvl(properties.getProperty("transfer.threadsNum"), 1);
         
         // output properties
