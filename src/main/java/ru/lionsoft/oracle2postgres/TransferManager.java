@@ -9,7 +9,13 @@
 package ru.lionsoft.oracle2postgres;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.Reader;
 import java.io.StringReader;
+import java.io.Writer;
+import java.sql.Blob;
+import java.sql.Clob;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -598,54 +604,125 @@ public class TransferManager implements AutoCloseable {
         ctx.log("Transfer data for table " + owner + '.' + tableName);
         
         try (Statement srcStmt  = srcConnection.createStatement();) {
-            // target copy manager
-            CopyManager cm = new CopyManager((BaseConnection) destConnection);
-            String destSql = "COPY " + owner + '.' + tableName + " FROM STDIN WITH DELIMITER ',' NULL 'null' CSV";
-            
             // source select
             srcStmt.setFetchSize(ctx.getChunkSize());
             try (ResultSet rs = srcStmt.executeQuery("SELECT * FROM "  + owner + '.' + tableName)) {
                 ResultSetMetaData metaData = rs.getMetaData();
                 
+                boolean isLobField = false;
+                for (int i = 1; i <= metaData.getColumnCount(); i++) {
+                    int columnType = metaData.getColumnType(i);
+                    if (columnType == Types.BLOB || columnType == Types.CLOB) {
+                        isLobField = true;
+                        break;
+                    }
+                }
+                
                 long rowCount = 0;
-                int chunkCount = 0;
-                StringBuilder csvBuffer = new StringBuilder();
-                while (rs.next()) {
-                    rowCount++;
-                    // save data to csv buffer
-                    chunkCount++;
+                if (isLobField) {
+                    StringBuilder sb = new StringBuilder("INSERT INTO " + owner + '.' + tableName + "(");
                     for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                        if (i > 1) csvBuffer.append(',');
-                        String val = rs.getString(i);
-                        int valType = metaData.getColumnType(i);
-                        if (val != null && 
-                                (valType == Types.VARCHAR || valType == Types.CHAR || valType == Types.CLOB 
-                                || valType == Types.NVARCHAR || valType == Types.NCHAR || valType == Types.NCLOB)) {
-                            val = val.replaceAll("\"", "\"\""); // quoted quotes
-                            csvBuffer.append('"').append(val).append('"');
-                        } else {
-                            csvBuffer.append(val);
+                        if (i > 1) sb.append(",");
+                        sb.append(metaData.getColumnName(i));
+                    }
+                    sb.append(") VALUES (");
+                    for (int i = 1; i <= metaData.getColumnCount(); i++) {
+                        if (i > 1) sb.append(",");
+                        sb.append('?');
+                    }
+                    sb.append(')');
+                    String destSql = sb.toString();
+                    ctx.info("Insert SQL: {" + destSql + "}");
+                    try (PreparedStatement pstmt = destConnection.prepareStatement(destSql);) {
+                        while (rs.next()) {
+                            // set parameters
+                            pstmt.clearParameters();
+                            for (int i = 1; i <= metaData.getColumnCount(); i++) {
+                                switch(metaData.getColumnType(i)) {
+                                    case Types.BLOB:
+                                        Blob blob = destConnection.createBlob();
+                                        try (
+                                                InputStream in = rs.getBlob(i).getBinaryStream();
+                                                OutputStream out = blob.setBinaryStream(1L);
+                                            ) {
+                                            byte[] buffer = new byte[32768];
+                                            int len;
+                                            while ((len = in.read(buffer)) > 0) {
+                                                out.write(buffer, 0, len);
+                                            }
+                                        }
+                                        pstmt.setBlob(i, blob);
+                                        break;
+                                        
+                                    case Types.CLOB:
+                                        Clob clob = destConnection.createClob();
+                                        try (
+                                                Reader in = rs.getClob(i).getCharacterStream();
+                                                Writer out = clob.setCharacterStream(1L);
+                                            ) {
+                                            char[] buffer = new char[32768];
+                                            int len;
+                                            while ((len = in.read(buffer)) > 0) {
+                                                out.write(buffer, 0, len);
+                                            }
+                                        }
+                                        pstmt.setClob(i, clob);
+                                        break;
+                                        
+                                    default:
+                                        pstmt.setObject(i, rs.getObject(i));
+                                }
+                            }
+                            // insert data
+                            //pstmt.executeUpdate();
+                            pstmt.addBatch();
+                            if (++rowCount % ctx.getChunkSize() == 0) {
+                                // insert records
+                                pstmt.executeBatch();
+                            }
+                        }
+                        pstmt.executeBatch(); // insert remaining records
+                    }
+                } else {
+                    // target copy manager
+                    CopyManager cm = new CopyManager((BaseConnection) destConnection);
+                    String destSql = "COPY " + owner + '.' + tableName + " FROM STDIN WITH DELIMITER ',' NULL 'null' CSV";
+
+                    StringBuilder csvBuffer = new StringBuilder();
+                    while (rs.next()) {
+                        // save data to csv buffer
+                        for (int i = 1; i <= metaData.getColumnCount(); i++) {
+                            if (i > 1) csvBuffer.append(',');
+                            String val = rs.getString(i);
+                            int valType = metaData.getColumnType(i);
+                            if (val != null && 
+                                    (valType == Types.VARCHAR || valType == Types.CHAR || valType == Types.CLOB 
+                                    || valType == Types.NVARCHAR || valType == Types.NCHAR || valType == Types.NCLOB)) {
+                                val = val.replaceAll("\"", "\"\""); // quoted quotes
+                                csvBuffer.append('"').append(val).append('"');
+                            } else {
+                                csvBuffer.append(val);
+                            }
+                        }
+                        csvBuffer.append('\n');
+
+                        // copy data
+                        if (++rowCount % ctx.getChunkSize() == 0) {
+                            // copy part data
+                            csvBuffer.deleteCharAt(csvBuffer.length() - 1); // delete last eol
+                            cm.copyIn(destSql, new StringReader(csvBuffer.toString()));
+
+                            // clear csv buffer
+                            csvBuffer = new StringBuilder();
                         }
                     }
-                    csvBuffer.append('\n');
-
-                    // copy data
-                    if (chunkCount >= ctx.getChunkSize()) {
-                        // copy part data
-                        csvBuffer.deleteCharAt(csvBuffer.length() - 1); // delete last eol
+                    if (csvBuffer.length() > 0) {
+                        // copy last part data
+                        csvBuffer.deleteCharAt(csvBuffer.length() - 1);
                         cm.copyIn(destSql, new StringReader(csvBuffer.toString()));
-                        
-                        // clear csv buffer
-                        chunkCount = 0;
-                        csvBuffer = new StringBuilder();
                     }
                 }
-                if (chunkCount > 0) {
-                    // copy last part data
-                    csvBuffer.deleteCharAt(csvBuffer.length() - 1);
-                    cm.copyIn(destSql, new StringReader(csvBuffer.toString()));
-                }
-                ctx.log("Copied " + rowCount + " rows");
+                ctx.log(owner + '.' + tableName + " Copied " + rowCount + " rows");
             } 
         } catch (SQLException | IOException ex) {
             ctx.error("transferData for table " + owner + '.' + tableName + ": " + ex.getLocalizedMessage());
