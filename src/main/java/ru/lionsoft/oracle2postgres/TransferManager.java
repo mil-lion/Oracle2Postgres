@@ -9,11 +9,7 @@
 package ru.lionsoft.oracle2postgres;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.io.Reader;
 import java.io.StringReader;
-import java.io.Writer;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Connection;
@@ -72,14 +68,14 @@ public class TransferManager implements AutoCloseable {
         String srcUrl = "jdbc:oracle:thin:@" + ctx.getSrcHost() + ':' + ctx.getSrcPort() + ':' + ctx.getSrcDatabase();
         ctx.log("-- Source URL: " + srcUrl);
         srcConnection = DriverManager.getConnection(srcUrl, ctx.getSrcUsername(), ctx.getSrcPassword());
-        ctx.log("Connecting to source database.");
+        ctx.log("Connecting to source database");
 
         if (ctx.isCreateTable() || ctx.isTransferRows()) {
             Class.forName(POSTGRES_DRIVER);
             String destUrl = "jdbc:postgresql://" + ctx.getDestHost() + ':' + ctx.getDestPort() + '/' + ctx.getDestDatabase();
             ctx.log("-- Target URL: " + destUrl);
             destConnection = DriverManager.getConnection(destUrl, ctx.getDestUsername(), ctx.getDestPassword());
-            ctx.log("Connecting to target database.");
+            ctx.log("Connecting to target database");
         }
     }
 
@@ -93,7 +89,7 @@ public class TransferManager implements AutoCloseable {
                 ctx.error(ex.getLocalizedMessage());
             }
             srcConnection = null;
-            ctx.log("Disconnect from source database.");
+            ctx.log("Disconnect from source database");
         }
         if (destConnection != null) {
             try {
@@ -102,7 +98,7 @@ public class TransferManager implements AutoCloseable {
                 ctx.error(ex.getLocalizedMessage());
             }
             destConnection = null;
-            ctx.log("Disconnect from target database.");
+            ctx.log("Disconnect from target database");
         }
     }
 
@@ -633,7 +629,7 @@ public class TransferManager implements AutoCloseable {
                     }
                     sb.append(')');
                     String destSql = sb.toString();
-                    ctx.info("Insert SQL: {" + destSql + "}");
+                    ctx.info("Using Insert SQL: {" + destSql + "}");
                     try (PreparedStatement pstmt = destConnection.prepareStatement(destSql);) {
                         while (rs.next()) {
                             // set parameters
@@ -645,7 +641,7 @@ public class TransferManager implements AutoCloseable {
                                         if (srcBlob != null) {
                                             pstmt.setBinaryStream(i, srcBlob.getBinaryStream());
                                         } else {
-                                            pstmt.setNull(i, Types.BLOB);
+                                            pstmt.setNull(i, Types.BINARY);
                                         }
                                         break;
                                         
@@ -654,7 +650,7 @@ public class TransferManager implements AutoCloseable {
                                         if (srcClob != null) {
                                             pstmt.setCharacterStream(i, srcClob.getCharacterStream());
                                         } else {
-                                            pstmt.setNull(i, Types.CLOB);
+                                            pstmt.setNull(i, Types.LONGVARCHAR);
                                         }
                                         break;
                                         
@@ -663,7 +659,7 @@ public class TransferManager implements AutoCloseable {
                                         if (srcNClob != null) {
                                             pstmt.setCharacterStream(i, srcNClob.getCharacterStream());
                                         } else {
-                                            pstmt.setNull(i, Types.NCLOB);
+                                            pstmt.setNull(i, Types.LONGVARCHAR);
                                         }
                                         break;
                                         
@@ -681,6 +677,7 @@ public class TransferManager implements AutoCloseable {
                         pstmt.executeBatch(); // insert remaining records
                     }
                 } else {
+                    ctx.info("Using Copy Manager");
                     // target copy manager
                     CopyManager copyMgr = new CopyManager((BaseConnection) destConnection);
                     String destSql = "COPY " + owner + '.' + tableName + " FROM STDIN WITH DELIMITER ',' NULL 'null' CSV";
