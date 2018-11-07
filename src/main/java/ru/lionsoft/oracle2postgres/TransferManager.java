@@ -643,18 +643,7 @@ public class TransferManager implements AutoCloseable {
                                     case Types.BLOB:
                                         Blob srcBlob = rs.getBlob(i);
                                         if (srcBlob != null) {
-                                            Blob destBlob = destConnection.createBlob();
-                                            try (
-                                                    InputStream in = srcBlob.getBinaryStream();
-                                                    OutputStream out = destBlob.setBinaryStream(1L);
-                                                ) {
-                                                byte[] buffer = new byte[32768];
-                                                int len;
-                                                while ((len = in.read(buffer)) > 0) {
-                                                    out.write(buffer, 0, len);
-                                                }
-                                            }
-                                            pstmt.setBlob(i, destBlob);
+                                            pstmt.setBinaryStream(i, srcBlob.getBinaryStream());
                                         } else {
                                             pstmt.setNull(i, Types.BLOB);
                                         }
@@ -663,18 +652,7 @@ public class TransferManager implements AutoCloseable {
                                     case Types.CLOB:
                                         Clob srcClob = rs.getClob(i);
                                         if (srcClob != null) {
-                                            Clob destClob = destConnection.createClob();
-                                            try (
-                                                    Reader in = srcClob.getCharacterStream();
-                                                    Writer out = destClob.setCharacterStream(1L);
-                                                ) {
-                                                char[] buffer = new char[32768];
-                                                int len;
-                                                while ((len = in.read(buffer)) > 0) {
-                                                    out.write(buffer, 0, len);
-                                                }
-                                            }
-                                            pstmt.setClob(i, destClob);
+                                            pstmt.setCharacterStream(i, srcClob.getCharacterStream());
                                         } else {
                                             pstmt.setNull(i, Types.CLOB);
                                         }
@@ -683,18 +661,7 @@ public class TransferManager implements AutoCloseable {
                                     case Types.NCLOB:
                                         NClob srcNClob = rs.getNClob(i);
                                         if (srcNClob != null) {
-                                            NClob destNClob = destConnection.createNClob();
-                                            try (
-                                                    Reader in = srcNClob.getCharacterStream();
-                                                    Writer out = destNClob.setCharacterStream(1L);
-                                                ) {
-                                                char[] buffer = new char[32768];
-                                                int len;
-                                                while ((len = in.read(buffer)) > 0) {
-                                                    out.write(buffer, 0, len);
-                                                }
-                                            }
-                                            pstmt.setNClob(i, destNClob);
+                                            pstmt.setCharacterStream(i, srcNClob.getCharacterStream());
                                         } else {
                                             pstmt.setNull(i, Types.NCLOB);
                                         }
