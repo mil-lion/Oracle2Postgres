@@ -632,6 +632,7 @@ public class TransferManager implements AutoCloseable {
                     ctx.info("Using Insert SQL: {" + destSql + "}");
                     try (PreparedStatement pstmt = destConnection.prepareStatement(destSql);) {
                         while (rs.next()) {
+                            if (ctx.getSampleRows() > 0 && rowCount >= ctx.getSampleRows()) break;
                             // set parameters
                             pstmt.clearParameters();
                             for (int i = 1; i <= metaData.getColumnCount(); i++) {
@@ -684,6 +685,7 @@ public class TransferManager implements AutoCloseable {
 
                     StringBuilder csvBuffer = new StringBuilder();
                     while (rs.next()) {
+                        if (ctx.getSampleRows() > 0 && rowCount >= ctx.getSampleRows()) break;
                         // save record to csv buffer
                         for (int i = 1; i <= metaData.getColumnCount(); i++) {
                             if (i > 1) csvBuffer.append(',');
