@@ -11,6 +11,7 @@ package ru.lionsoft.oracle2postgres;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -182,7 +183,7 @@ public class TransferContext {
         if (createSchema) {
             createTable = true;
         } else {
-            createTable = inputYesNo("\n- Create target tables (default: 'no'): ", "no");
+            createTable = inputYesNo("- Create target tables (default: 'no'): ", "no");
         }
         transferRows = inputYesNo("- Transfer rows to target tables (default: 'no'): ", "no");
         if (transferRows) {
@@ -246,7 +247,9 @@ public class TransferContext {
     public void readPropertiesFromFile(String filename) throws FileNotFoundException, IOException {
         Properties properties = new Properties();
         
-        properties.load(new FileInputStream(filename));
+        try (InputStream in = new FileInputStream(filename);) {
+            properties.load(in);
+        }
         
         // source
         srcHost = properties.getProperty("source.host", "localhost");
@@ -255,8 +258,8 @@ public class TransferContext {
         srcUsername = properties.getProperty("source.username", "scott");
         srcPassword = properties.getProperty("source.password", "");
         
-        owner = properties.getProperty("source.owner", "scott");
-        String tablist = properties.getProperty("source.tables", "*");
+        owner = properties.getProperty("source.owner", "scott").toUpperCase();
+        String tablist = properties.getProperty("source.tables", "*").toLowerCase();
         if (!tablist.equals("*")) {
             for (String tableName : tablist.split(",")) {
                 tables.add(tableName.trim());
