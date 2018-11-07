@@ -259,7 +259,7 @@ public class TransferContext {
         srcPassword = properties.getProperty("source.password", "");
         
         owner = properties.getProperty("source.owner", "scott").toUpperCase();
-        String tablist = properties.getProperty("source.tables", "*").toLowerCase();
+        String tablist = properties.getProperty("source.tables", "*").toUpperCase();
         if (!tablist.equals("*")) {
             for (String tableName : tablist.split(",")) {
                 tables.add(tableName.trim());
