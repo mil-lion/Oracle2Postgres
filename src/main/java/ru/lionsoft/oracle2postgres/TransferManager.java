@@ -18,6 +18,7 @@ import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.NClob;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -640,33 +641,63 @@ public class TransferManager implements AutoCloseable {
                             for (int i = 1; i <= metaData.getColumnCount(); i++) {
                                 switch(metaData.getColumnType(i)) {
                                     case Types.BLOB:
-                                        Blob blob = destConnection.createBlob();
-                                        try (
-                                                InputStream in = rs.getBlob(i).getBinaryStream();
-                                                OutputStream out = blob.setBinaryStream(1L);
-                                            ) {
-                                            byte[] buffer = new byte[32768];
-                                            int len;
-                                            while ((len = in.read(buffer)) > 0) {
-                                                out.write(buffer, 0, len);
+                                        Blob srcBlob = rs.getBlob(i);
+                                        if (srcBlob != null) {
+                                            Blob destBlob = destConnection.createBlob();
+                                            try (
+                                                    InputStream in = srcBlob.getBinaryStream();
+                                                    OutputStream out = destBlob.setBinaryStream(1L);
+                                                ) {
+                                                byte[] buffer = new byte[32768];
+                                                int len;
+                                                while ((len = in.read(buffer)) > 0) {
+                                                    out.write(buffer, 0, len);
+                                                }
                                             }
+                                            pstmt.setBlob(i, destBlob);
+                                        } else {
+                                            pstmt.setNull(i, Types.BLOB);
                                         }
-                                        pstmt.setBlob(i, blob);
                                         break;
                                         
                                     case Types.CLOB:
-                                        Clob clob = destConnection.createClob();
-                                        try (
-                                                Reader in = rs.getClob(i).getCharacterStream();
-                                                Writer out = clob.setCharacterStream(1L);
-                                            ) {
-                                            char[] buffer = new char[32768];
-                                            int len;
-                                            while ((len = in.read(buffer)) > 0) {
-                                                out.write(buffer, 0, len);
+                                        Clob srcClob = rs.getClob(i);
+                                        if (srcClob != null) {
+                                            Clob destClob = destConnection.createClob();
+                                            try (
+                                                    Reader in = srcClob.getCharacterStream();
+                                                    Writer out = destClob.setCharacterStream(1L);
+                                                ) {
+                                                char[] buffer = new char[32768];
+                                                int len;
+                                                while ((len = in.read(buffer)) > 0) {
+                                                    out.write(buffer, 0, len);
+                                                }
                                             }
+                                            pstmt.setClob(i, destClob);
+                                        } else {
+                                            pstmt.setNull(i, Types.CLOB);
                                         }
-                                        pstmt.setClob(i, clob);
+                                        break;
+                                        
+                                    case Types.NCLOB:
+                                        NClob srcNClob = rs.getNClob(i);
+                                        if (srcNClob != null) {
+                                            NClob destNClob = destConnection.createNClob();
+                                            try (
+                                                    Reader in = srcNClob.getCharacterStream();
+                                                    Writer out = destNClob.setCharacterStream(1L);
+                                                ) {
+                                                char[] buffer = new char[32768];
+                                                int len;
+                                                while ((len = in.read(buffer)) > 0) {
+                                                    out.write(buffer, 0, len);
+                                                }
+                                            }
+                                            pstmt.setNClob(i, destNClob);
+                                        } else {
+                                            pstmt.setNull(i, Types.NCLOB);
+                                        }
                                         break;
                                         
                                     default:
