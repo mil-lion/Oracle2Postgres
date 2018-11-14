@@ -410,17 +410,42 @@ public class TransferManager implements AutoCloseable {
         ctx.log("-- Table " + owner + '.' + tableName);
         ctx.writeDDL("\n--\n-- Table " + owner + '.' + tableName + "\n--\n");
 
+        // Drop table
+        extractDropTableDDL(owner, tableName);
+
+        // Create table
+        extractCreateTableDDL(owner, tableName);
+
+        // Comments for table
+        ctx.log("-- Comments for table " + owner + '.' + tableName);
+        ctx.writeDDL("\n-- Comments for table " + owner + '.' + tableName);
+        extractTableCommentDDL(owner, tableName);
+
+        // Comments for table columns
+        extractTableColumnCommentsDDL(owner, tableName);
+
+        // Constraints for Table (Primary Key, Unique, Check)
+        extractTableConstraintsPUC(owner, tableName);
+
+        // Indexes for Table
+        extractTableIndexesDDL(owner, tableName);
+
+        // Sequence ???
+    }
+
+    private void extractDropTableDDL(String owner, String tableName) {
         String sql = "DROP TABLE " + owner + '.' + tableName + " CASCADE";
         ctx.writeDDL(sql + ';');
         if (ctx.isCreateTable()) {
             executeDDL(sql, "Drop table " + owner + '.' + tableName);
         }
+    }
 
+    private void extractCreateTableDDL(String owner, String tableName) throws SQLException {
         StringBuilder sb = new StringBuilder("CREATE TABLE " + owner + '.' + tableName + " (\n");
-
         // Columns
         try (PreparedStatement pstmt = srcConnection.prepareStatement(
-                          "SELECT column_name, data_type, data_length, data_scale, data_precision, nullable, data_default "
+                "SELECT column_name, data_type, data_length, data_scale, data_precision, nullable, data_default "
                         + "FROM all_tab_columns "
                         + "WHERE owner = ? AND table_name = ? "
                         + "ORDER BY column_id")) {
@@ -436,8 +461,8 @@ public class TransferManager implements AutoCloseable {
                     // Column
                     String columnName = rs.getString("column_name");
                     sb.append(StringUtils.rpad(columnName, COLUMN_NAME_LENGTH))
-                      .append(' ');
-
+                            .append(' ');
+                    
                     // PostgreSQL Data Type Convert
                     String dataType = rs.getString("data_type");
                     String dataLength = rs.getString("data_length");
@@ -477,17 +502,22 @@ public class TransferManager implements AutoCloseable {
             } // end fetch
         } // end select
         sb.append(")");
-        sql = sb.toString();
+        String sql = sb.toString();
         ctx.writeDDL(sql + ';');
         if (ctx.isCreateTable()) {
             executeDDL(sql, "Create table " + owner + '.' + tableName);
         }
+    }
 
-        // Comments for table
-        ctx.log("-- Comments for table " + owner + '.' + tableName);
-        ctx.writeDDL("\n-- Comments for table " + owner + '.' + tableName);
+    /**
+     * Extract Comments for table
+     * @param owner schema owner
+     * @param tableName table name
+     * @exception SQLException when sql error execute
+     */
+    private void extractTableCommentDDL(String owner, String tableName) throws SQLException {
         try (PreparedStatement pstmt = srcConnection.prepareStatement(
-                          "SELECT comments "
+                "SELECT comments "
                         + "FROM all_tab_comments "
                         + "WHERE owner = ? AND table_name = ?")) {
             pstmt.setString(1, owner);
@@ -497,7 +527,7 @@ public class TransferManager implements AutoCloseable {
                     String comments = rs.getString(1);
                     if (comments != null && !comments.isEmpty()) {
                         comments = comments.replaceAll("'", "''"); // quoted apostrof
-                        sql = "COMMENT ON TABLE " + owner + '.' + tableName + " IS '" + comments + '\'';
+                        String sql = "COMMENT ON TABLE " + owner + '.' + tableName + " IS '" + comments + '\'';
                         ctx.writeDDL(sql + ';');
                         if (ctx.isCreateTable()) {
                             executeDDL(sql, "Create comment for table " + owner + '.' + tableName);
@@ -506,10 +536,17 @@ public class TransferManager implements AutoCloseable {
                 }
             }
         }
+    }
 
-        // Comments for table columns
+    /**
+     * Extract Comments for table columns
+     * @param owner schema owner
+     * @param tableName table name
+     * @exception SQLException when sql error execute
+     */
+    private void extractTableColumnCommentsDDL(String owner, String tableName) throws SQLException {
         try (PreparedStatement pstmt = srcConnection.prepareStatement(
-                          "SELECT column_name, comments "
+                "SELECT column_name, comments "
                         + "FROM all_col_comments "
                         + "WHERE owner = ? AND table_name = ?")) {
             pstmt.setString(1, owner);
@@ -520,7 +557,7 @@ public class TransferManager implements AutoCloseable {
                     if (comments != null && !comments.isEmpty()) {
                         comments = comments.replaceAll("'", "''"); // quoted apostrof
                         String columnName = rs.getString("column_name");
-                        sql = "COMMENT ON COLUMN " 
+                        String sql = "COMMENT ON COLUMN "
                                 + owner + '.' + tableName + '.' + StringUtils.rpad(columnName, COLUMN_NAME_LENGTH) 
                                 + " IS '" + comments + '\'';
                         ctx.writeDDL(sql + ';');
@@ -531,14 +568,6 @@ public class TransferManager implements AutoCloseable {
                 }
             }
         }
-
-        // Constraints for Table (Primary Key, Unique, Check)
-        extractTableConstraintsPUC(owner, tableName);
-
-        // Indexes for Table
-        extractTableIndexesDDL(owner, tableName);
-
-        // Sequence ???
     }
     
     public void extractSchemaDDL() {
@@ -594,7 +623,7 @@ public class TransferManager implements AutoCloseable {
     }
 
     /**
-     *
+     * Transfer table data
      * @author Alexey Novikov <anovikov9004 at inbox.ru>
      */
     private void transferData(String owner, String tableName) {
@@ -604,123 +633,141 @@ public class TransferManager implements AutoCloseable {
             // source select
             srcStmt.setFetchSize(ctx.getChunkSize());
             try (ResultSet rs = srcStmt.executeQuery("SELECT * FROM "  + owner + '.' + tableName)) {
-                ResultSetMetaData metaData = rs.getMetaData();
-                
-                boolean isLobField = false;
-                for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                    int columnType = metaData.getColumnType(i);
-                    if (columnType == Types.BLOB || columnType == Types.CLOB) {
-                        isLobField = true;
-                        break;
-                    }
-                }
-                
-                long rowCount = 0;
-                if (isLobField) {
-                    StringBuilder sb = new StringBuilder("INSERT INTO " + owner + '.' + tableName + "(");
-                    for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                        if (i > 1) sb.append(",");
-                        sb.append(metaData.getColumnName(i));
-                    }
-                    sb.append(") VALUES (");
-                    for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                        if (i > 1) sb.append(",");
-                        sb.append('?');
-                    }
-                    sb.append(')');
-                    String destSql = sb.toString();
-                    ctx.info("Using Insert SQL: {" + destSql + "}");
-                    try (PreparedStatement pstmt = destConnection.prepareStatement(destSql);) {
-                        while (rs.next()) {
-                            if (ctx.getSampleRows() > 0 && rowCount >= ctx.getSampleRows()) break;
-                            // set parameters
-                            pstmt.clearParameters();
-                            for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                                switch(metaData.getColumnType(i)) {
-                                    case Types.BLOB:
-                                        Blob srcBlob = rs.getBlob(i);
-                                        if (srcBlob != null) {
-                                            pstmt.setBinaryStream(i, srcBlob.getBinaryStream());
-                                        } else {
-                                            pstmt.setNull(i, Types.BINARY);
-                                        }
-                                        break;
-                                        
-                                    case Types.CLOB:
-                                        Clob srcClob = rs.getClob(i);
-                                        if (srcClob != null) {
-                                            pstmt.setCharacterStream(i, srcClob.getCharacterStream());
-                                        } else {
-                                            pstmt.setNull(i, Types.LONGVARCHAR);
-                                        }
-                                        break;
-                                        
-                                    case Types.NCLOB:
-                                        NClob srcNClob = rs.getNClob(i);
-                                        if (srcNClob != null) {
-                                            pstmt.setCharacterStream(i, srcNClob.getCharacterStream());
-                                        } else {
-                                            pstmt.setNull(i, Types.LONGVARCHAR);
-                                        }
-                                        break;
-                                        
-                                    default:
-                                        pstmt.setObject(i, rs.getObject(i));
-                                }
-                            }
-                            // add record
-                            pstmt.addBatch();
-                            if (++rowCount % ctx.getChunkSize() == 0) {
-                                // insert records
-                                pstmt.executeBatch();
-                            }
-                        }
-                        pstmt.executeBatch(); // insert remaining records
-                    }
+                long rowCount;
+                if (isLobField(rs.getMetaData())) {
+                    rowCount = transferWithInsert(owner, tableName, rs);
                 } else {
-                    ctx.info("Using Copy Manager");
-                    // target copy manager
-                    CopyManager copyMgr = new CopyManager((BaseConnection) destConnection);
-                    String destSql = "COPY " + owner + '.' + tableName + " FROM STDIN WITH DELIMITER ',' NULL 'null' CSV";
-
-                    StringBuilder csvBuffer = new StringBuilder();
-                    while (rs.next()) {
-                        if (ctx.getSampleRows() > 0 && rowCount >= ctx.getSampleRows()) break;
-                        // save record to csv buffer
-                        for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                            if (i > 1) csvBuffer.append(',');
-                            String val = rs.getString(i);
-                            int valType = metaData.getColumnType(i);
-                            if (val != null && 
-                                    (valType == Types.VARCHAR || valType == Types.CHAR || valType == Types.CLOB 
-                                    || valType == Types.NVARCHAR || valType == Types.NCHAR || valType == Types.NCLOB)) {
-                                val = val.replaceAll("\"", "\"\""); // quoted quotes
-                                csvBuffer.append('"').append(val).append('"');
-                            } else {
-                                csvBuffer.append(val);
-                            }
-                        }
-                        csvBuffer.append('\n');
-
-                        if (++rowCount % ctx.getChunkSize() == 0) {
-                            // copy records
-                            csvBuffer.deleteCharAt(csvBuffer.length() - 1); // delete last eol
-                            copyMgr.copyIn(destSql, new StringReader(csvBuffer.toString()));
-
-                            // clear csv buffer
-                            csvBuffer = new StringBuilder();
-                        }
-                    }
-                    if (csvBuffer.length() > 0) {
-                        // copy remaining records
-                        csvBuffer.deleteCharAt(csvBuffer.length() - 1);
-                        copyMgr.copyIn(destSql, new StringReader(csvBuffer.toString()));
-                    }
+                    rowCount = transferWithCopyManager(owner, tableName, rs);
                 }
                 ctx.log(owner + '.' + tableName + " Copied " + rowCount + " rows");
             } 
         } catch (SQLException | IOException ex) {
             ctx.error("transferData for table " + owner + '.' + tableName + ": " + ex.getLocalizedMessage());
         }
+    }
+
+    private boolean isLobField(ResultSetMetaData metaData) throws SQLException {
+        boolean isLobField = false;
+        for (int i = 1; i <= metaData.getColumnCount(); i++) {
+            int columnType = metaData.getColumnType(i);
+            if (columnType == Types.BLOB || columnType == Types.CLOB) {
+                isLobField = true;
+                break;
+            }
+        }
+        return isLobField;
+    }
+
+    private String createInsertSql(String owner, String tableName, ResultSetMetaData metaData) throws SQLException {
+        StringBuilder sb = new StringBuilder("INSERT INTO " + owner + '.' + tableName + "(");
+        for (int i = 1; i <= metaData.getColumnCount(); i++) {
+            if (i > 1) sb.append(",");
+            sb.append(metaData.getColumnName(i));
+        }
+        sb.append(") VALUES (");
+        for (int i = 1; i <= metaData.getColumnCount(); i++) {
+            if (i > 1) sb.append(",");
+            sb.append('?');
+        }
+        sb.append(')');
+        return sb.toString();
+    }
+
+    private long transferWithInsert(String owner, String tableName, final ResultSet rs) throws SQLException {
+        ResultSetMetaData metaData = rs.getMetaData();
+        String destSql = createInsertSql(owner, tableName, metaData);
+        ctx.info("Using Insert SQL: {" + destSql + "}");
+        long rowCount = 0;
+        try (PreparedStatement pstmt = destConnection.prepareStatement(destSql);) {
+            while (rs.next()) {
+                if (ctx.getSampleRows() > 0 && rowCount >= ctx.getSampleRows()) break;
+                // set parameters
+                pstmt.clearParameters();
+                for (int i = 1; i <= metaData.getColumnCount(); i++) {
+                    switch(metaData.getColumnType(i)) {
+                        case Types.BLOB:
+                            Blob srcBlob = rs.getBlob(i);
+                            if (srcBlob != null) {
+                                pstmt.setBinaryStream(i, srcBlob.getBinaryStream());
+                            } else {
+                                pstmt.setNull(i, Types.BINARY);
+                            }
+                            break;
+                            
+                        case Types.CLOB:
+                            Clob srcClob = rs.getClob(i);
+                            if (srcClob != null) {
+                                pstmt.setCharacterStream(i, srcClob.getCharacterStream());
+                            } else {
+                                pstmt.setNull(i, Types.LONGVARCHAR);
+                            }
+                            break;
+                            
+                        case Types.NCLOB:
+                            NClob srcNClob = rs.getNClob(i);
+                            if (srcNClob != null) {
+                                pstmt.setCharacterStream(i, srcNClob.getCharacterStream());
+                            } else {
+                                pstmt.setNull(i, Types.LONGVARCHAR);
+                            }
+                            break;
+                            
+                        default:
+                            pstmt.setObject(i, rs.getObject(i));
+                    }
+                }
+                // add record
+                pstmt.addBatch();
+                if (++rowCount % ctx.getChunkSize() == 0) {
+                    // insert records
+                    pstmt.executeBatch();
+                }
+            }
+            pstmt.executeBatch(); // insert remaining records
+        }
+        return rowCount;
+    }
+
+    private long transferWithCopyManager(String owner, String tableName, final ResultSet rs) throws SQLException, IOException {
+        ctx.info("Using Copy Manager");
+        // target copy manager
+        CopyManager copyMgr = new CopyManager((BaseConnection) destConnection);
+        String destSql = "COPY " + owner + '.' + tableName + " FROM STDIN WITH DELIMITER ',' NULL 'null' CSV";
+        ResultSetMetaData metaData = rs.getMetaData();
+        StringBuilder csvBuffer = new StringBuilder();
+        long rowCount = 0; 
+        while (rs.next()) {
+            if (ctx.getSampleRows() > 0 && rowCount >= ctx.getSampleRows()) break;
+            // save record to csv buffer
+            for (int i = 1; i <= metaData.getColumnCount(); i++) {
+                if (i > 1) csvBuffer.append(',');
+                String val = rs.getString(i);
+                int valType = metaData.getColumnType(i);
+                if (val != null &&
+                        (valType == Types.VARCHAR || valType == Types.CHAR || valType == Types.CLOB
+                        || valType == Types.NVARCHAR || valType == Types.NCHAR || valType == Types.NCLOB)) {
+                    val = val.replaceAll("\"", "\"\""); // quoted quotes
+                    csvBuffer.append('"').append(val).append('"');
+                } else {
+                    csvBuffer.append(val);
+                }
+            }
+            csvBuffer.append('\n');
+            
+            if (++rowCount % ctx.getChunkSize() == 0) {
+                // copy records
+                csvBuffer.deleteCharAt(csvBuffer.length() - 1); // delete last eol
+                copyMgr.copyIn(destSql, new StringReader(csvBuffer.toString()));
+                
+                // clear csv buffer
+                csvBuffer = new StringBuilder();
+            }
+        }
+        if (csvBuffer.length() > 0) {
+            // copy remaining records
+            csvBuffer.deleteCharAt(csvBuffer.length() - 1);
+            copyMgr.copyIn(destSql, new StringReader(csvBuffer.toString()));
+        }
+        return rowCount;
     }
 }
